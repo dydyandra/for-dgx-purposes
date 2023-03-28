@@ -10,12 +10,12 @@ from tempfile import NamedTemporaryFile
 from pathlib import Path
 
 
-def scale(img, xScale, yScale):
+def __scale(img, xScale, yScale):
     res = cv2.resize(img, None, fx=xScale, fy=yScale, interpolation=cv2.INTER_AREA)
     return res
 
 
-def crop(infile, height, width):
+def __crop(infile, height, width):
     im = Image.open(infile)
     imgwidth, imgheight = im.size
     for i in range(imgheight // height):
@@ -24,7 +24,7 @@ def crop(infile, height, width):
             yield im.crop(box)
 
 
-def averagePixels(path):
+def __averagePixels(path):
     r, g, b = 0, 0, 0
     count = 0
     pic = Image.open(path)
@@ -38,14 +38,14 @@ def averagePixels(path):
             count += 1
     return (r / count), (g / count), (b / count), count
 
-def convert_frame_to_grayscale(frame):
+def __convert_frame_to_grayscale(frame):
     grayframe = None
     gray = None
     if frame is not None:
         cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = scale(gray, 1, 1)
-        grayframe = scale(gray, 1, 1)
+        gray = __scale(gray, 1, 1)
+        grayframe = __scale(gray, 1, 1)
         gray = cv2.GaussianBlur(gray, (9, 9), 0.0)
     return grayframe, gray
 
@@ -58,7 +58,7 @@ def convert_frame_to_grayscale(frame):
 #         os.makedirs(csvPath)
 
 
-def plot_metrics(indices, lstfrm, lstdiffMag):
+def __plot_metrics(indices, lstfrm, lstdiffMag):
     plt.plot(indices, y[indices], "x")
     l = plt.plot(lstfrm, lstdiffMag, 'r-')
     plt.xlabel('frames')
@@ -67,20 +67,24 @@ def plot_metrics(indices, lstfrm, lstdiffMag):
     plt.show()
 
 
-def keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbose=False):
+def __keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbose=False):
     
-    filename = Path(filename)
+    filename = Path(str(filename))
     print(filename)
     filename_wo_ext = filename.with_suffix('')
-    # filename_with_jpg = filename.with_suffix('.jpg')
-
+    filename_with_jpg = filename.with_suffix('.jpg')
+    print(filename_with_jpg)
 
     # keyframePath = f"/keyFrames/{filename_wo_ext}/" 
-    keyframePath = f"/keyFrames/" 
+    folderPath = f"{filename_wo_ext}" 
 
-
-    cap = cv2.VideoCapture(source)
+    # source = np.asarray(bytearray(source.download_as_bytes()), dtype="uint8")
+    source.download_to_filename('/tmp/video.mp4')
+    print(source)
+    cap = cv2.VideoCapture('/tmp/video.mp4')
+    print(cap)
     length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    print(length)
   
     if (cap.isOpened()== False):
         print("Error opening video file")
@@ -93,10 +97,12 @@ def keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbose=
     lastFrame = None
     Start_time = time.process_time()
     
+    print("Masuk sini")
     # Read until video is completed
     for i in range(length):
         ret, frame = cap.read()
-        grayframe, blur_gray = convert_frame_to_grayscale(frame)
+        
+        grayframe, blur_gray = __convert_frame_to_grayscale(frame)
 
         frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES) - 1
         lstfrm.append(frame_number)
@@ -114,33 +120,47 @@ def keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbose=
         lastFrame = blur_gray
 
     cap.release()
+    print("Release cap")
     y = np.array(lstdiffMag)
     base = peakutils.baseline(y, 2)
     indices = peakutils.indexes(y-base, Thres, min_dist=1)
     
     #plot to monitor the selected keyframe
     if (plotMetrics):
-        plot_metrics(indices, lstfrm, lstdiffMag)
+        __plot_metrics(indices, lstfrm, lstdiffMag)
 
     cnt = 1
+    print(filename)
     for x in indices:
-        with NamedTemporaryFile() as temp:
-            temp_file = "".join([str(temp.name), filename])
-
-            cv2.imwrite(temp_file, full_color[x])
+        with NamedTemporaryFile(suffix = '.jpg') as temp:
+            filename_with_jpg = f"/{filename_wo_ext}_{cnt}.jpg"
+            # temp_file = "".join([str(temp.name), str(filename_with_jpg)])
+            # print(temp_file)
+            # print(full_color[x])
+            status = cv2.imwrite(temp.name, full_color[x])
+            print(status)
+            if status is True:
+                print('It got uploaded')
+            else:
+                print("GAMASUK")
             # cv2.imwrite(os.path.join(keyframePath , 'keyframe'+ str(cnt) +'.jpg'), full_color[x])
             cnt +=1
             log_message = 'keyframe ' + str(cnt) + ' happened at ' + str(timeSpans[x]) + ' sec.'
-
-
-            keyframePath = keyframePath + f"/{filename_wo_ext}_{cnt}.jpg" 
+            print(log_message)
+            keyframePath = folderPath + f"/{filename_wo_ext}_{cnt}.jpg" 
             dest_blob = dest.blob(keyframePath)
-            dest_blob.upload_from_filename(temp_file)
+            dest_blob.upload_from_filename(temp.name, content_type='image/jpeg')
+            print(dest_blob)
 
             if(verbose):
                 print(log_message)
 
+    if os.path.exists('/tmp/video.mp4'):
+        print("True")
+        os.remove('/tmp/video.mp4')
     cv2.destroyAllWindows()
+
+
 
 
 def main(event, context):
@@ -157,8 +177,8 @@ def main(event, context):
     dest_bucket_name = os.environ.get('PROCESSED_BUCKET_NAME', 'Specified environment variable is not set.')
     dest_bucket = client.get_bucket(dest_bucket_name)
 
-    # print("des")
-    if source_blob.endswith('.mp4'):
+    print(source_blob)
+    if str(source_blob.name).endswith('.mp4'):
         # print("yes")
-        keyframeDetection(file['name'], source_blob, dest_bucket, 0.5)
+        __keyframeDetection(file['name'], source_blob, dest_bucket, 0.5)
 
