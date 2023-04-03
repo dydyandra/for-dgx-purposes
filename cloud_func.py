@@ -49,23 +49,6 @@ def __convert_frame_to_grayscale(frame):
         gray = cv2.GaussianBlur(gray, (9, 9), 0.0)
     return grayframe, gray
 
-# def prepare_dirs(keyframePath, imageGridsPath, csvPath):
-#     if not os.path.exists(keyframePath):
-#         os.makedirs(keyframePath)
-#     if not os.path.exists(imageGridsPath):
-#         os.makedirs(imageGridsPath)
-#     if not os.path.exists(csvPath):
-#         os.makedirs(csvPath)
-
-
-def __plot_metrics(indices, lstfrm, lstdiffMag):
-    plt.plot(indices, y[indices], "x")
-    l = plt.plot(lstfrm, lstdiffMag, 'r-')
-    plt.xlabel('frames')
-    plt.ylabel('pixel difference')
-    plt.title("Pixel value differences from frame to frame and the peak values")
-    plt.show()
-
 
 def __keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbose=False):
     
@@ -84,6 +67,7 @@ def __keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbos
     cap = cv2.VideoCapture('/tmp/video.mp4')
     print(cap)
     length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = int(cap.get(cv2.CAP_PROP_FPS))
     print(length)
   
     if (cap.isOpened()== False):
@@ -100,34 +84,34 @@ def __keyframeDetection(filename, source, dest, Thres, plotMetrics=False, verbos
     print("Masuk sini")
     # Read until video is completed
     for i in range(length):
-        ret, frame = cap.read()
+        if i % fps == 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+            ret, frame = cap.read()
         
-        grayframe, blur_gray = __convert_frame_to_grayscale(frame)
+            grayframe, blur_gray = __convert_frame_to_grayscale(frame)
 
-        frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES) - 1
-        lstfrm.append(frame_number)
-        images.append(grayframe)
-        full_color.append(frame)
-        if frame_number == 0:
+            frame_number = cap.get(cv2.CAP_PROP_POS_FRAMES) - 1
+            lstfrm.append(frame_number)
+            images.append(grayframe)
+            full_color.append(frame)
+            if frame_number == 0:
+                lastFrame = blur_gray
+
+            diff = cv2.subtract(blur_gray, lastFrame)
+            diffMag = cv2.countNonZero(diff)
+            lstdiffMag.append(diffMag)
+            stop_time = time.process_time()
+            time_Span = stop_time-Start_time
+            timeSpans.append(time_Span)
             lastFrame = blur_gray
-
-        diff = cv2.subtract(blur_gray, lastFrame)
-        diffMag = cv2.countNonZero(diff)
-        lstdiffMag.append(diffMag)
-        stop_time = time.process_time()
-        time_Span = stop_time-Start_time
-        timeSpans.append(time_Span)
-        lastFrame = blur_gray
+        else: 
+            continue
 
     cap.release()
     print("Release cap")
     y = np.array(lstdiffMag)
     base = peakutils.baseline(y, 2)
     indices = peakutils.indexes(y-base, Thres, min_dist=1)
-    
-    #plot to monitor the selected keyframe
-    if (plotMetrics):
-        __plot_metrics(indices, lstfrm, lstdiffMag)
 
     cnt = 1
     print(filename)
@@ -179,6 +163,5 @@ def main(event, context):
 
     print(source_blob)
     if str(source_blob.name).endswith('.mp4'):
-        # print("yes")
-        __keyframeDetection(file['name'], source_blob, dest_bucket, 0.5)
+        __keyframeDetection(file['name'], source_blob, dest_bucket, 0.7)
 
